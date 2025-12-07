@@ -21,7 +21,13 @@ interface ResultsViewProps {
   onReset: () => void;
 }
 
-const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6']; // Protein (Green), Carbs (Orange), Fat (Red), Fiber (Blue)
+// Define consistent colors for each macronutrient
+const MACRO_COLORS: Record<string, string> = {
+  'Protein': '#10b981', // Emerald
+  'Carbs': '#f59e0b',   // Amber
+  'Fats': '#ef4444',    // Red
+  'Fiber': '#3b82f6'    // Blue
+};
 
 export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onReset }) => {
   const [expandedSection, setExpandedSection] = React.useState<string | null>('items');
@@ -31,12 +37,13 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
     setExpandedSection(expandedSection === section ? null : section);
   };
 
+  // Sort macronutrients by value (descending) for display
   const macroData = [
-    { name: 'Protein', value: result.macros.protein },
-    { name: 'Carbs', value: result.macros.carbs },
-    { name: 'Fats', value: result.macros.fats },
-    { name: 'Fiber', value: result.macros.fiber },
-  ];
+    { name: 'Protein', value: result.macros.protein, color: MACRO_COLORS['Protein'] },
+    { name: 'Carbs', value: result.macros.carbs, color: MACRO_COLORS['Carbs'] },
+    { name: 'Fats', value: result.macros.fats, color: MACRO_COLORS['Fats'] },
+    { name: 'Fiber', value: result.macros.fiber, color: MACRO_COLORS['Fiber'] },
+  ].sort((a, b) => b.value - a.value);
 
   const getHealthColor = (score: number) => {
     if (score >= 80) return 'text-emerald-600 bg-emerald-50 border-emerald-200';
@@ -175,7 +182,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
                       dataKey="value"
                     >
                       {macroData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
                     <RechartsTooltip formatter={(value) => `${value}g`} />
@@ -183,10 +190,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
                 </ResponsiveContainer>
               </div>
               <div className="w-full sm:w-1/2 grid grid-cols-2 gap-3">
-                {macroData.map((macro, idx) => (
+                {macroData.map((macro) => (
                   <div key={macro.name} className="flex flex-col p-2 rounded-xl bg-slate-50">
                     <div className="flex items-center gap-2 mb-1">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[idx] }}></div>
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: macro.color }}></div>
                       <span className="text-xs text-slate-500">{macro.name}</span>
                     </div>
                     <span className="font-bold text-slate-700">{macro.value}g</span>
