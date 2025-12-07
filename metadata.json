@@ -1,0 +1,7 @@
+{
+  "name": "NutriVision - Food Health Checker",
+  "description": "AI-powered food analysis tool that estimates calories, macronutrients, and provides health scores with improvement suggestions using Gemini Flash.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
