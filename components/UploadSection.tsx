@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
-import { Upload, Camera, X } from 'lucide-react';
+import { Upload, Camera, X, RefreshCcw } from 'lucide-react';
 
 interface UploadSectionProps {
   onImageSelect: (file: File) => void;
@@ -8,47 +8,79 @@ interface UploadSectionProps {
 export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const [isVideoReady, setIsVideoReady] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   // Manage Camera Stream
   useEffect(() => {
     let currentStream: MediaStream | null = null;
+    setIsVideoReady(false);
 
-    if (isCameraOpen) {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then(stream => {
+    const startCamera = async () => {
+      if (isCameraOpen) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: facingMode,
+              width: { ideal: 1920 },
+              height: { ideal: 1080 }
+            } 
+          });
+          
           currentStream = stream;
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
+            // Explicitly play to ensure feed starts on some mobile browsers
+            try {
+              await videoRef.current.play();
+            } catch (playError) {
+              console.error("Video play failed:", playError);
+            }
           }
-        })
-        .catch(err => {
+        } catch (err) {
           console.error("Camera access error:", err);
-          alert("Unable to access camera. Please ensure you have granted camera permissions.");
+          alert("Unable to access camera. Please ensure you have granted permissions and no other app is using it.");
           setIsCameraOpen(false);
-        });
-    }
+        }
+      }
+    };
+
+    startCamera();
 
     return () => {
       if (currentStream) {
         currentStream.getTracks().forEach(track => track.stop());
       }
     };
-  }, [isCameraOpen]);
+  }, [isCameraOpen, facingMode]);
+
+  const handleVideoLoaded = () => {
+    setIsVideoReady(true);
+  };
+
+  const toggleCamera = () => {
+    setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+  };
 
   const handleCapture = () => {
-    if (videoRef.current && canvasRef.current) {
+    if (videoRef.current && canvasRef.current && isVideoReady) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       
-      // Match canvas size to video resolution
+      // Use actual video dimensions
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       
       const context = canvas.getContext('2d');
       if (context) {
-        // Draw video frame to canvas
+        // Flip horizontally if using front camera for natural mirror effect
+        if (facingMode === 'user') {
+          context.translate(canvas.width, 0);
+          context.scale(-1, 1);
+        }
+
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         
         canvas.toBlob((blob) => {
@@ -97,19 +129,28 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
   if (isCameraOpen) {
     return (
       <div className="w-full max-w-2xl mx-auto">
-        <div className="relative w-full h-80 bg-black rounded-3xl overflow-hidden shadow-lg flex flex-col items-center justify-center">
+        <div className="relative w-full h-[400px] bg-black rounded-3xl overflow-hidden shadow-lg flex flex-col items-center justify-center">
           <video 
             ref={videoRef} 
             autoPlay 
             playsInline 
-            className="absolute inset-0 w-full h-full object-cover"
+            muted
+            onLoadedMetadata={handleVideoLoaded}
+            className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${isVideoReady ? 'opacity-100' : 'opacity-0'} ${facingMode === 'user' ? 'scale-x-[-1]' : ''}`}
           />
+          
+          {!isVideoReady && (
+            <div className="absolute inset-0 flex items-center justify-center text-white/50">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            </div>
+          )}
+
           <canvas ref={canvasRef} className="hidden" />
           
           <div className="absolute bottom-6 left-0 right-0 flex justify-center items-center gap-8 z-10">
             <button 
               onClick={() => setIsCameraOpen(false)}
-              className="p-3 bg-white/20 backdrop-blur-md rounded-full text-white hover:bg-white/30 transition-colors"
+              className="p-3 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors"
               title="Cancel"
             >
               <X size={24} />
@@ -117,18 +158,25 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
             
             <button 
               onClick={handleCapture}
-              className="group p-1 rounded-full border-4 border-white/50 hover:border-white transition-all duration-300 active:scale-95"
+              disabled={!isVideoReady}
+              className={`group p-1 rounded-full border-4 border-white/50 transition-all duration-300 active:scale-95 ${!isVideoReady ? 'opacity-50 cursor-not-allowed' : 'hover:border-white cursor-pointer'}`}
               title="Capture Photo"
             >
-              <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center group-hover:scale-90 transition-transform">
-                <div className="w-12 h-12 rounded-full border-2 border-slate-300"></div>
+              <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center group-hover:scale-90 transition-transform shadow-lg">
+                <div className="w-14 h-14 rounded-full border-2 border-slate-300"></div>
               </div>
             </button>
 
-            <div className="w-12"></div> {/* Spacer to balance layout */}
+            <button 
+              onClick={toggleCamera}
+              className="p-3 bg-black/40 backdrop-blur-md rounded-full text-white hover:bg-black/60 transition-colors"
+              title="Switch Camera"
+            >
+              <RefreshCcw size={24} />
+            </button>
           </div>
         </div>
-         <div className="mt-8 text-center">
+         <div className="mt-6 text-center">
           <p className="text-sm text-slate-400 font-medium tracking-wide uppercase">Align food within frame</p>
         </div>
       </div>

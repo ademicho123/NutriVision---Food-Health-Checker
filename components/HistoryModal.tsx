@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { X, Calendar, ChevronRight, Trash2 } from 'lucide-react';
 import { HistoryItem } from '../types';
 
@@ -11,7 +11,19 @@ interface HistoryModalProps {
 }
 
 export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, history, onSelect, onClear }) => {
+  const [isConfirming, setIsConfirming] = useState(false);
+
+  // Reset confirmation state when modal opens/closes
+  React.useEffect(() => {
+    if (isOpen) setIsConfirming(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
+
+  const handleClear = () => {
+    onClear();
+    setIsConfirming(false);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
@@ -26,6 +38,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
           <button 
             onClick={onClose}
             className="p-2 bg-slate-100 hover:bg-slate-200 rounded-full transition-colors text-slate-600"
+            type="button"
           >
             <X size={20} />
           </button>
@@ -85,13 +98,33 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
         {/* Footer */}
         {history.length > 0 && (
           <div className="p-4 border-t border-slate-100 bg-slate-50">
-            <button 
-              onClick={onClear}
-              className="w-full py-3 flex items-center justify-center gap-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors text-sm font-medium"
-            >
-              <Trash2 size={16} />
-              Clear History
-            </button>
+            {!isConfirming ? (
+              <button 
+                onClick={() => setIsConfirming(true)}
+                className="w-full py-3 flex items-center justify-center gap-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors text-sm font-medium"
+                type="button"
+              >
+                <Trash2 size={16} />
+                Clear History
+              </button>
+            ) : (
+              <div className="flex gap-3 animate-[fadeIn_0.2s_ease-out]">
+                <button 
+                  onClick={() => setIsConfirming(false)}
+                  className="flex-1 py-3 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors text-sm font-medium"
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleClear}
+                  className="flex-1 py-3 bg-red-500 text-white hover:bg-red-600 rounded-xl transition-colors text-sm font-medium shadow-md shadow-red-200"
+                  type="button"
+                >
+                  Yes, Clear All
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -131,10 +131,8 @@ const App: React.FC = () => {
   };
 
   const handleClearHistory = () => {
-    if (confirm("Are you sure you want to clear your meal history?")) {
-      setHistory([]);
-      localStorage.removeItem('nutrivision_history');
-    }
+    setHistory([]);
+    localStorage.removeItem('nutrivision_history');
   };
 
   const loadHistoryItem = (item: HistoryItem) => {

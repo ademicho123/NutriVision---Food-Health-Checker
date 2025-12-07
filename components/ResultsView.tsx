@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FoodAnalysisResult } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import { 
@@ -11,7 +11,8 @@ import {
   Info,
   ChefHat,
   Share2,
-  RefreshCw
+  RefreshCw,
+  Check
 } from 'lucide-react';
 
 interface ResultsViewProps {
@@ -24,6 +25,7 @@ const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6']; // Protein (Green),
 
 export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onReset }) => {
   const [expandedSection, setExpandedSection] = React.useState<string | null>('items');
+  const [showCopied, setShowCopied] = useState(false);
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
@@ -48,6 +50,37 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
     return '#ef4444';
   };
 
+  const handleShare = async () => {
+    const shareText = `🥗 Meal Analysis by NutriVision\n\n` +
+      `🔥 Calories: ${result.totalCalories}\n` +
+      `🎯 Health Score: ${result.healthScore}/100\n\n` +
+      `Macros:\n` +
+      `• Protein: ${result.macros.protein}g\n` +
+      `• Carbs: ${result.macros.carbs}g\n` +
+      `• Fats: ${result.macros.fats}g\n\n` +
+      `AI Suggestion: ${result.healthRatingExplanation}`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'NutriVision Meal Analysis',
+          text: shareText,
+        });
+      } catch (err) {
+        console.log('Error sharing:', err);
+      }
+    } else {
+      // Fallback to clipboard
+      try {
+        await navigator.clipboard.writeText(shareText);
+        setShowCopied(true);
+        setTimeout(() => setShowCopied(false), 2000);
+      } catch (err) {
+        alert("Failed to copy to clipboard");
+      }
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto pb-20 animate-[fadeIn_0.5s_ease-out]">
       
@@ -60,9 +93,12 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
           <RefreshCw size={18} />
           <span>Analyze Another</span>
         </button>
-        <button className="flex items-center gap-2 text-slate-500 hover:text-emerald-600 transition-colors">
-          <Share2 size={18} />
-          <span>Share</span>
+        <button 
+          onClick={handleShare}
+          className="flex items-center gap-2 text-slate-500 hover:text-emerald-600 transition-colors relative"
+        >
+          {showCopied ? <Check size={18} className="text-emerald-500" /> : <Share2 size={18} />}
+          <span>{showCopied ? "Copied!" : "Share"}</span>
         </button>
       </div>
 
