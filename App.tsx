@@ -155,7 +155,7 @@ const App: React.FC = () => {
             <div className="bg-emerald-500 text-white p-1.5 rounded-lg">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a8.5 8.5 0 0 0 0 17 8.5 8.5 0 0 0 0-17z"/><path d="M12 8v4l3 3"/></svg>
             </div>
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight">Nutri<span className="text-emerald-500">Vision</span></h1>
+            <h1 className="text-xl font-bold text-slate-800 tracking-tight">Food<span className="text-emerald-500">Cal</span></h1>
           </div>
           <nav className="flex gap-4 text-sm font-medium text-slate-600">
             <button 

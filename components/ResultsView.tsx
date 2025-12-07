@@ -51,7 +51,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
   };
 
   const handleShare = async () => {
-    const shareText = `🥗 Meal Analysis by NutriVision\n\n` +
+    const shareText = `🥗 Meal Analysis by FoodCal\n\n` +
       `🔥 Calories: ${result.totalCalories}\n` +
       `🎯 Health Score: ${result.healthScore}/100\n\n` +
       `Macros:\n` +
@@ -63,7 +63,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'NutriVision Meal Analysis',
+          title: 'FoodCal Meal Analysis',
           text: shareText,
         });
       } catch (err) {
