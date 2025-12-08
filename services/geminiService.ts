@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Schema, FunctionDeclaration } from "@google/genai";
 import { FoodAnalysisResult, UserSettings, HistoryItem, ChatMessage } from "../types";
 
@@ -6,30 +5,30 @@ import { FoodAnalysisResult, UserSettings, HistoryItem, ChatMessage } from "../t
 
 const toolUpdateSettings: FunctionDeclaration = {
   name: "update_dietary_profile",
-  description: "Update the user's dietary settings, goals, or preferences.",
+  description: "Update the user's dietary settings, goals, or preferences. Use this when the user says 'I want to go Keto', 'Set calories to 2000', or 'I have a nut allergy'.",
   parameters: {
     type: Type.OBJECT,
     properties: {
-      dailyCalorieTarget: { type: Type.NUMBER, description: "The new daily calorie goal." },
-      addPreferences: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Dietary tags to add (e.g. 'Vegan', 'Keto')." },
-      removePreferences: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Dietary tags to remove." },
-      customDietRules: { type: Type.STRING, description: "Custom text rules for the user's diet (e.g. 'Intermittent fasting')." }
+      dailyCalorieTarget: { type: Type.NUMBER, description: "The new daily calorie goal (e.g. 2000)." },
+      addPreferences: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Dietary tags to ADD to the list (e.g. 'Vegan', 'Keto', 'Nut Free')." },
+      removePreferences: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Dietary tags to REMOVE from the list." },
+      customDietRules: { type: Type.STRING, description: "Custom text rules for the user's diet (e.g. 'Intermittent fasting 16:8', 'No processed sugar')." }
     }
   }
 };
 
 const toolLogFood: FunctionDeclaration = {
   name: "log_manual_meal",
-  description: "Log a meal manually when the user describes what they ate without a photo.",
+  description: "Log a meal manually when the user describes what they ate without a photo. Use this when user says 'I ate a burger', 'Log an apple', etc.",
   parameters: {
     type: Type.OBJECT,
     properties: {
       foodName: { type: Type.STRING, description: "Name of the meal or food item." },
-      calories: { type: Type.NUMBER, description: "Estimated calories." },
-      protein: { type: Type.NUMBER, description: "Estimated protein in grams." },
-      carbs: { type: Type.NUMBER, description: "Estimated carbs in grams." },
-      fats: { type: Type.NUMBER, description: "Estimated fats in grams." },
-      fiber: { type: Type.NUMBER, description: "Estimated fiber in grams." }
+      calories: { type: Type.NUMBER, description: "Estimated calories. CRITICAL: If user doesn't specify, YOU MUST ESTIMATE it based on general nutrition knowledge. Do not ask the user." },
+      protein: { type: Type.NUMBER, description: "Estimated protein in grams (optional/estimated)." },
+      carbs: { type: Type.NUMBER, description: "Estimated carbs in grams (optional/estimated)." },
+      fats: { type: Type.NUMBER, description: "Estimated fats in grams (optional/estimated)." },
+      fiber: { type: Type.NUMBER, description: "Estimated fiber in grams (optional/estimated)." }
     },
     required: ["foodName", "calories"]
   }
@@ -37,12 +36,12 @@ const toolLogFood: FunctionDeclaration = {
 
 const toolSetReminder: FunctionDeclaration = {
   name: "set_reminder",
-  description: "Set a timer to remind the user of a health task.",
+  description: "Set a timer to remind the user of a health task. Use when user says 'Remind me to drink water in 30 mins'.",
   parameters: {
     type: Type.OBJECT,
     properties: {
       minutes: { type: Type.NUMBER, description: "Number of minutes from now to trigger the reminder." },
-      task: { type: Type.STRING, description: "The message to remind the user about (e.g. 'Drink water')." }
+      task: { type: Type.STRING, description: "The message to remind the user about." }
     },
     required: ["minutes", "task"]
   }
@@ -166,6 +165,11 @@ export const analyzeFoodImage = async (
   try {
     const apiKey = getApiKey();
     const ai = new GoogleGenAI({ apiKey });
+    
+    // Extract real MIME type from base64 string
+    // Format: "data:image/png;base64,....."
+    const match = base64Image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+    const mimeType = match ? match[1] : "image/jpeg";
     const cleanBase64 = base64Image.split(',')[1] || base64Image;
 
     let systemInstruction = BASE_SYSTEM_PROMPT;
@@ -185,7 +189,7 @@ export const analyzeFoodImage = async (
       model: "gemini-2.5-flash", 
       contents: {
         parts: [
-          { inlineData: { mimeType: "image/jpeg", data: cleanBase64 } },
+          { inlineData: { mimeType: mimeType, data: cleanBase64 } },
           { text: "Analyze this meal strictly according to the requested JSON schema, keeping the User Context in mind." }
         ]
       },
@@ -201,7 +205,15 @@ export const analyzeFoodImage = async (
       throw new Error("No response received from Gemini.");
     }
 
-    return JSON.parse(response.text);
+    // Clean Markdown code blocks if present
+    let cleanJson = response.text.trim();
+    if (cleanJson.startsWith('```json')) {
+        cleanJson = cleanJson.replace(/^```json/, '').replace(/```$/, '');
+    } else if (cleanJson.startsWith('```')) {
+        cleanJson = cleanJson.replace(/^```/, '').replace(/```$/, '');
+    }
+
+    return JSON.parse(cleanJson);
 
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
@@ -234,7 +246,12 @@ export const chatWithNutritionist = async (
     const systemInstruction = `
     You are 'NutriAI', a friendly, professional, and highly knowledgeable Personal Nutrition Assistant.
     Your goal is to help the user achieve their dietary goals based on their settings and eating history.
-    You have access to tools to modify settings, log food, and set reminders. USE THEM whenever the user asks.
+    
+    You have access to powerful tools. USE THEM PROACTIVELY when the user implies a need:
+    - If they say "I'm going vegan" or "Set calories to 2500" -> Call 'update_dietary_profile'.
+    - If they say "I just ate a banana" or "Log a 500 cal sandwich" -> Call 'log_manual_meal'.
+    - If they say "Remind me to drink water" -> Call 'set_reminder'.
+    - IMPORTANT: If a user asks to log food but doesn't explicitly state calories (e.g., "I ate an apple"), use your knowledge to estimate the calories and call the tool.
 
     === USER PROFILE ===
     ${buildUserContext(settings, history)}
@@ -247,19 +264,22 @@ export const chatWithNutritionist = async (
 
     GUIDELINES:
     1. STRICTLY focus on nutrition, diet, food science, and health.
-    2. If the user asks to change a setting, log a meal (without image), or set a reminder, CALL THE APPROPRIATE FUNCTION.
-    3. Use the 'User Context' to personalize every answer.
-    4. Be encouraging but scientific.
+    2. Use the 'User Context' to personalize every answer.
+    3. If a tool was called, the system will provide the result. Use that result to confirm the action to the user in a natural way.
     `;
 
     // Map chat history to API format
+    // Filter out system messages and map to proper structure
+    // Limit to last 20 messages to prevent token limits
     const historyContents = chatHistory
-      .filter(m => m.role !== 'system')
+      .filter(m => m.role === 'user' || m.role === 'model') 
+      .slice(-20) 
       .map(m => ({
-        role: m.role,
+        role: m.role as 'user' | 'model',
         parts: [{ text: m.text }]
       }));
 
+    // Append the NEW user message to the conversation history
     const currentContents = [
       ...historyContents,
       { role: 'user', parts: [{ text: message }] }
@@ -285,6 +305,7 @@ export const chatWithNutritionist = async (
     // Handle Tool Execution
     let functionResult = "";
     try {
+      console.log("Executing Tool:", functionCall.name, functionCall.args);
       if (functionCall.name === "update_dietary_profile") {
         functionResult = await actions.updateSettings(functionCall.args);
       } else if (functionCall.name === "log_manual_meal") {
@@ -295,7 +316,8 @@ export const chatWithNutritionist = async (
         functionResult = "Error: Unknown function.";
       }
     } catch (e) {
-      functionResult = "Error executing function.";
+      console.error("Tool Execution Error:", e);
+      functionResult = "Error executing function: " + (e as Error).message;
     }
 
     // Second Turn: Send tool result back to model for final natural response
@@ -308,11 +330,11 @@ export const chatWithNutritionist = async (
       ],
       config: {
         systemInstruction: systemInstruction, 
-        // We don't provide tools in the second turn to prevent loops, usually not needed for confirmation
+        // We don't provide tools in the second turn to prevent loops
       }
     });
 
-    return response2.text || "Action completed.";
+    return response2.text || functionResult;
 
   } catch (error) {
     console.error("Chat Error:", error);

@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { X, Check, Target, BookOpen, Bot, Bell, FileText } from 'lucide-react';
+import { X, Check, Target, BookOpen, Bot, Bell, FileText, Trash2, Activity } from 'lucide-react';
 import { UserSettings } from '../types';
 
 interface SettingsModalProps {
@@ -7,6 +8,7 @@ interface SettingsModalProps {
   onClose: () => void;
   settings: UserSettings;
   onSave: (newSettings: UserSettings) => void;
+  onOpenDiagnostics?: () => void;
 }
 
 const PREFERENCES = [
@@ -26,7 +28,7 @@ const AGENTS = [
   { id: "sugar_watch", label: "Sugar Watchdog", desc: "Warns about high sugar content.", icon: <Bot size={14}/> },
 ];
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave, onOpenDiagnostics }) => {
   const [localSettings, setLocalSettings] = React.useState<UserSettings>(settings);
   const [activeTab, setActiveTab] = React.useState<'pattern' | 'agents'>('pattern');
 
@@ -59,6 +61,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
   const handleSave = () => {
     onSave(localSettings);
     onClose();
+  };
+
+  const handleReset = () => {
+    if(window.confirm("Reset all settings to default?")) {
+      setLocalSettings({ dietaryPreferences: [], activeAgents: [] });
+    }
   };
 
   return (
@@ -192,10 +200,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, s
 
         </div>
 
-        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
+        <div className="p-4 border-t border-slate-100 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
+          <div className="flex items-center gap-3">
+            <button
+               onClick={handleReset}
+               className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors"
+               title="Reset Settings"
+            >
+              <Trash2 size={14}/> Reset
+            </button>
+            {onOpenDiagnostics && (
+              <button 
+                onClick={onOpenDiagnostics}
+                className="text-xs text-slate-400 hover:text-emerald-600 flex items-center gap-1 transition-colors"
+                title="Run System Checks"
+                data-testid="diagnostics-btn"
+              >
+                <Activity size={14} /> Diagnostics
+              </button>
+            )}
+          </div>
           <button 
             onClick={handleSave}
-            className="px-6 py-2.5 bg-emerald-600 text-white rounded-full font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-colors w-full sm:w-auto"
+            className="px-6 py-2.5 bg-emerald-600 text-white rounded-full font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-colors flex-1 sm:flex-none"
           >
             Save Profile
           </button>

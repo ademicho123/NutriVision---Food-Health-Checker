@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { X, Calendar, ChevronRight, Trash2 } from 'lucide-react';
+import { X, Calendar, ChevronRight, Trash2, Edit } from 'lucide-react';
 import { HistoryItem } from '../types';
 
 interface HistoryModalProps {
@@ -27,7 +28,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]">
-      <div className="bg-white w-full max-w-lg max-h-[80vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+      <div className="bg-white w-full max-w-lg max-h-[80vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden" data-testid="history-modal">
         
         {/* Header */}
         <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
@@ -57,19 +58,35 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
               <div 
                 key={item.id}
                 onClick={() => onSelect(item)}
-                className="group flex gap-4 p-3 rounded-2xl border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-all cursor-pointer"
+                className="group flex gap-4 p-3 rounded-2xl border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-all cursor-pointer relative"
+                data-testid={`history-item-${item.id}`}
               >
-                <img 
-                  src={item.image} 
-                  alt="Meal thumbnail" 
-                  className="w-20 h-20 rounded-xl object-cover border border-slate-100"
-                />
+                {item.result.isManual && (
+                  <div className="absolute top-2 right-2 text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+                     <Edit size={10} /> Manual
+                  </div>
+                )}
+                
+                {item.result.isManual || item.image === "MANUAL_ENTRY_MARKER" ? (
+                  <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-emerald-50 to-teal-100 flex items-center justify-center text-emerald-600 border border-emerald-100">
+                    <Edit size={24} className="opacity-75" />
+                  </div>
+                ) : (
+                  <img 
+                    src={item.image} 
+                    alt="Meal thumbnail" 
+                    className="w-20 h-20 rounded-xl object-cover border border-slate-100"
+                  />
+                )}
+
                 <div className="flex-1 flex flex-col justify-center">
-                  <div className="flex justify-between items-start">
+                  <div className="flex justify-between items-start pr-12">
                     <h3 className="font-semibold text-slate-800 line-clamp-1">
                       {item.result.foodItems[0]?.name || "Unknown Meal"}
                     </h3>
-                    <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                  </div>
+                  <div className="mt-1">
+                     <span className="text-xs font-bold text-slate-700">
                       {item.result.totalCalories} kcal
                     </span>
                   </div>
@@ -77,15 +94,17 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
                     <Calendar size={12} />
                     {new Date(item.timestamp).toLocaleDateString()} • {new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                   </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full ${item.result.healthScore >= 70 ? 'bg-emerald-500' : item.result.healthScore >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`} 
-                        style={{ width: `${item.result.healthScore}%` }}
-                      ></div>
+                  {!item.result.isManual && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[100px]">
+                        <div 
+                          className={`h-full rounded-full ${item.result.healthScore >= 70 ? 'bg-emerald-500' : item.result.healthScore >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`} 
+                          style={{ width: `${item.result.healthScore}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-xs font-bold text-slate-600">{item.result.healthScore}</span>
                     </div>
-                    <span className="text-xs font-bold text-slate-600">{item.result.healthScore}/100</span>
-                  </div>
+                  )}
                 </div>
                 <div className="self-center text-slate-300 group-hover:text-emerald-400 transition-colors">
                   <ChevronRight size={20} />
@@ -103,6 +122,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
                 onClick={() => setIsConfirming(true)}
                 className="w-full py-3 flex items-center justify-center gap-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors text-sm font-medium"
                 type="button"
+                data-testid="clear-history-init-btn"
               >
                 <Trash2 size={16} />
                 Clear History
@@ -120,6 +140,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({ isOpen, onClose, his
                   onClick={handleClear}
                   className="flex-1 py-3 bg-red-500 text-white hover:bg-red-600 rounded-xl transition-colors text-sm font-medium shadow-md shadow-red-200"
                   type="button"
+                  data-testid="confirm-clear-history-btn"
                 >
                   Yes, Clear All
                 </button>

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FoodAnalysisResult } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
 import { 
@@ -14,13 +14,18 @@ import {
   Share2,
   RefreshCw,
   Check,
-  Edit3
+  Edit3,
+  Target,
+  Save
 } from 'lucide-react';
 
 interface ResultsViewProps {
   result: FoodAnalysisResult;
   imageSrc: string;
   onReset: () => void;
+  dailyGoal?: number;
+  consumedToday: number;
+  onUpdateGoal: (newGoal: number) => void;
 }
 
 // Define consistent colors for each macronutrient
@@ -31,21 +36,33 @@ const MACRO_COLORS: Record<string, string> = {
   'Fiber': '#3b82f6'    // Blue
 };
 
-export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onReset }) => {
+export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onReset, dailyGoal, consumedToday, onUpdateGoal }) => {
   const [expandedSection, setExpandedSection] = React.useState<string | null>('items');
   const [showCopied, setShowCopied] = useState(false);
+  
+  // Goal Editing State
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const [tempGoal, setTempGoal] = useState<string>(dailyGoal ? dailyGoal.toString() : '');
+
+  // Sync tempGoal if dailyGoal changes externally (e.g. via Chat)
+  useEffect(() => {
+    setTempGoal(dailyGoal ? dailyGoal.toString() : '');
+  }, [dailyGoal]);
 
   const toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
   };
 
-  // Sort macronutrients by value (descending) for display
-  const macroData = [
+  // Sort macronutrients by value (descending)
+  const macroDataRaw = [
     { name: 'Protein', value: result.macros.protein, color: MACRO_COLORS['Protein'] },
     { name: 'Carbs', value: result.macros.carbs, color: MACRO_COLORS['Carbs'] },
     { name: 'Fats', value: result.macros.fats, color: MACRO_COLORS['Fats'] },
     { name: 'Fiber', value: result.macros.fiber, color: MACRO_COLORS['Fiber'] },
-  ].sort((a, b) => b.value - a.value);
+  ];
+
+  const totalMacros = macroDataRaw.reduce((acc, curr) => acc + curr.value, 0);
+  const macroData = macroDataRaw.sort((a, b) => b.value - a.value);
 
   const getHealthColor = (score: number) => {
     if (score >= 80) return 'text-emerald-600 bg-emerald-50 border-emerald-200';
@@ -79,7 +96,6 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
         console.log('Error sharing:', err);
       }
     } else {
-      // Fallback to clipboard
       try {
         await navigator.clipboard.writeText(shareText);
         setShowCopied(true);
@@ -90,14 +106,23 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
     }
   };
 
+  const saveGoal = () => {
+    const val = parseInt(tempGoal);
+    if (!isNaN(val) && val > 0) {
+      onUpdateGoal(val);
+      setIsEditingGoal(false);
+    }
+  };
+
   return (
-    <div className="w-full max-w-4xl mx-auto pb-20 animate-[fadeIn_0.5s_ease-out]">
+    <div className="w-full max-w-4xl mx-auto pb-20 animate-[fadeIn_0.5s_ease-out]" data-testid="results-view">
       
       {/* Header Actions */}
       <div className="flex justify-between items-center mb-6">
         <button 
           onClick={onReset}
           className="flex items-center gap-2 text-slate-500 hover:text-emerald-600 transition-colors"
+          data-testid="reset-analysis-btn"
         >
           <RefreshCw size={18} />
           <span>Analyze Another</span>
@@ -117,17 +142,24 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
         <div className="md:col-span-5 space-y-6">
           {/* Image Card */}
           <div className="bg-white p-2 rounded-3xl shadow-sm border border-slate-100 overflow-hidden relative group">
-            <img src={imageSrc} alt="Analyzed Food" className="w-full h-64 object-cover rounded-2xl" />
+            {result.isManual || imageSrc === "MANUAL_ENTRY_MARKER" ? (
+              <div className="w-full h-64 bg-gradient-to-br from-emerald-50 to-teal-100 flex flex-col items-center justify-center text-emerald-600 rounded-2xl">
+                <Edit3 size={48} className="mb-2 opacity-80" />
+                <span className="font-semibold text-emerald-800">Manual Log</span>
+              </div>
+            ) : (
+              <img src={imageSrc} alt="Analyzed Food" className="w-full h-64 object-cover rounded-2xl" />
+            )}
             
             {result.isManual && (
-              <div className="absolute top-4 right-4 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+              <div className="absolute top-4 right-4 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg z-10">
                 MANUAL LOG
               </div>
             )}
 
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-2xl font-bold text-slate-800">{result.totalCalories}</h2>
+                <h2 className="text-2xl font-bold text-slate-800" data-testid="total-calories">{result.totalCalories}</h2>
                 <span className="text-sm font-medium px-3 py-1 bg-slate-100 text-slate-600 rounded-full">kcal</span>
               </div>
               <p className="text-slate-500 text-sm flex items-center gap-1">
@@ -136,8 +168,83 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
             </div>
           </div>
 
+          {/* Daily Goal / Budget Card */}
+          <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm" data-testid="daily-goal-card">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <Target size={18} className="text-emerald-500"/> Daily Budget
+              </h3>
+              {!isEditingGoal && (
+                <button 
+                  onClick={() => setIsEditingGoal(true)} 
+                  className="text-slate-400 hover:text-emerald-600 transition-colors"
+                  title="Edit Goal"
+                >
+                  <Edit3 size={16} />
+                </button>
+              )}
+            </div>
+
+            {isEditingGoal ? (
+              <div className="space-y-2">
+                 <p className="text-xs text-slate-500 font-medium">
+                    Current intake: <span className="font-bold text-slate-700">{consumedToday} kcal</span>
+                 </p>
+                 <div className="flex gap-2">
+                   <input 
+                     type="number" 
+                     value={tempGoal} 
+                     onChange={(e) => setTempGoal(e.target.value)}
+                     placeholder="Set Goal (kcal)"
+                     className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                     autoFocus
+                   />
+                   <button 
+                     onClick={saveGoal}
+                     className="p-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors"
+                   >
+                     <Save size={18} />
+                   </button>
+                 </div>
+                 {tempGoal && !isNaN(parseInt(tempGoal)) && (
+                   <p className="text-xs text-slate-400 text-right">
+                      {parseInt(tempGoal) - consumedToday >= 0 
+                        ? `${parseInt(tempGoal) - consumedToday} kcal remaining` 
+                        : `${Math.abs(parseInt(tempGoal) - consumedToday)} kcal over budget`}
+                   </p>
+                 )}
+              </div>
+            ) : dailyGoal ? (
+              <div>
+                <div className="flex justify-between text-sm mb-2 font-medium">
+                  <span className="text-slate-600">Consumed: {consumedToday}</span>
+                  <span className="text-slate-400">Target: {dailyGoal}</span>
+                </div>
+                <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all duration-1000 ${consumedToday > dailyGoal ? 'bg-red-500' : 'bg-emerald-500'}`}
+                    style={{ width: `${Math.min((consumedToday / dailyGoal) * 100, 100)}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-slate-400 mt-2 text-center">
+                  {consumedToday > dailyGoal ? "Over budget" : `${dailyGoal - consumedToday} kcal remaining`}
+                </p>
+              </div>
+            ) : (
+              <div className="text-center py-2">
+                <p className="text-sm text-slate-500 mb-3">No daily target set.</p>
+                <button 
+                  onClick={() => setIsEditingGoal(true)}
+                  className="text-sm text-emerald-600 font-medium hover:underline"
+                >
+                  Set a goal to track progress
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Health Score */}
-          <div className={`p-6 rounded-3xl border shadow-sm ${getHealthColor(result.healthScore)}`}>
+          <div className={`p-6 rounded-3xl border shadow-sm ${getHealthColor(result.healthScore)}`} data-testid="health-score-card">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-bold text-lg">Health Score</h3>
               <div className="relative w-16 h-16 flex items-center justify-center">
@@ -175,28 +282,36 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
         <div className="md:col-span-7 space-y-6">
           
           {/* Macros Chart */}
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100" data-testid="macros-chart">
             <h3 className="font-bold text-lg text-slate-800 mb-4">Macronutrients</h3>
             <div className="flex flex-col sm:flex-row items-center">
-              <div className="w-full h-48 sm:w-1/2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={macroData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={40}
-                      outerRadius={60}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {macroData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip formatter={(value) => `${value}g`} />
-                  </PieChart>
-                </ResponsiveContainer>
+              <div className="w-full h-48 sm:w-1/2 flex items-center justify-center">
+                {totalMacros > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={macroData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={60}
+                        paddingAngle={5}
+                        dataKey="value"
+                        isAnimationActive={false}
+                      >
+                        {macroData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip formatter={(value) => `${value}g`} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center text-slate-400 text-sm">
+                    <div className="mb-2">💧</div>
+                    No Macros Detected
+                  </div>
+                )}
               </div>
               <div className="w-full sm:w-1/2 grid grid-cols-2 gap-3">
                 {macroData.map((macro) => (
@@ -216,7 +331,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
           <div className="space-y-4">
             
             {/* Detected Items */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden" data-testid="food-items-list">
               <button 
                 onClick={() => toggleSection('items')}
                 className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"

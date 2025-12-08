@@ -1,3 +1,4 @@
+
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { Upload, Camera, X, RefreshCcw } from 'lucide-react';
 
@@ -64,32 +65,63 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
     setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
   };
 
-  const handleCapture = () => {
-    if (videoRef.current && canvasRef.current && isVideoReady) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
+  // Utility to compress image before sending up
+  const compressImage = (source: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement): Promise<File> => {
+    return new Promise((resolve) => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const maxWidth = 1024; // Limit width to 1024px for storage safety
       
-      // Use actual video dimensions
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      const context = canvas.getContext('2d');
-      if (context) {
-        // Flip horizontally if using front camera for natural mirror effect
-        if (facingMode === 'user') {
-          context.translate(canvas.width, 0);
-          context.scale(-1, 1);
-        }
+      let width = 0;
+      let height = 0;
 
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (source instanceof HTMLVideoElement) {
+         width = source.videoWidth;
+         height = source.videoHeight;
+      } else if (source instanceof HTMLImageElement) {
+         width = source.naturalWidth;
+         height = source.naturalHeight;
+      } else {
+         width = source.width;
+         height = source.height;
+      }
+
+      // Calculate new dimensions
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      // Draw and compress
+      if (ctx) {
+        if (facingMode === 'user' && source instanceof HTMLVideoElement) {
+            ctx.translate(width, 0);
+            ctx.scale(-1, 1);
+        }
+        ctx.drawImage(source, 0, 0, width, height);
         
         canvas.toBlob((blob) => {
           if (blob) {
-            const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
-            setIsCameraOpen(false); // Clean up state
-            onImageSelect(file); // Pass to parent
+            const file = new File([blob], "compressed-image.jpg", { type: "image/jpeg" });
+            resolve(file);
           }
-        }, 'image/jpeg', 0.9);
+        }, 'image/jpeg', 0.7); // 70% quality
+      }
+    });
+  };
+
+  const handleCapture = async () => {
+    if (videoRef.current && isVideoReady) {
+      try {
+        const file = await compressImage(videoRef.current);
+        setIsCameraOpen(false);
+        onImageSelect(file);
+      } catch (e) {
+        console.error("Capture failed", e);
+        alert("Failed to capture image.");
       }
     }
   };
@@ -114,16 +146,33 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
   };
 
   const validateAndProcess = (file: File) => {
-    // Simple validation
+    // Basic type check
     if (!file.type.startsWith('image/')) {
       alert('Please upload an image file');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) { // 10MB
-      alert('File size too large. Max 10MB.');
-      return;
-    }
-    onImageSelect(file);
+
+    // Load image to compress it
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    
+    img.onload = async () => {
+      URL.revokeObjectURL(objectUrl);
+      try {
+        const compressedFile = await compressImage(img);
+        onImageSelect(compressedFile);
+      } catch (e) {
+        console.error("Compression failed", e);
+        // Fallback to original if compression fails, though unlikely
+        onImageSelect(file);
+      }
+    };
+    
+    img.onerror = () => {
+       alert("Failed to load image.");
+    };
+
+    img.src = objectUrl;
   };
 
   if (isCameraOpen) {
@@ -161,6 +210,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
               disabled={!isVideoReady}
               className={`group p-1 rounded-full border-4 border-white/50 transition-all duration-300 active:scale-95 ${!isVideoReady ? 'opacity-50 cursor-not-allowed' : 'hover:border-white cursor-pointer'}`}
               title="Capture Photo"
+              data-testid="camera-capture-btn"
             >
               <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center group-hover:scale-90 transition-transform shadow-lg">
                 <div className="w-14 h-14 rounded-full border-2 border-slate-300"></div>
@@ -195,12 +245,13 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
              <img src="https://cdn-icons-png.flaticon.com/512/706/706164.png" alt="Food Plate" className="w-12 h-12 opacity-80" />
           </div>
           <p className="mb-2 text-xl font-semibold text-slate-700">Drag & Drop your meal here</p>
-          <p className="text-sm text-slate-500 mb-6">Supported: JPG, PNG, WEBP (Max 10MB)</p>
+          <p className="text-sm text-slate-500 mb-6">Supported: JPG, PNG, WEBP</p>
           
           <div className="flex gap-4">
             <button 
               onClick={() => fileInputRef.current?.click()}
               className="px-6 py-2.5 bg-emerald-600 text-white rounded-full font-medium shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition-colors flex items-center gap-2"
+              data-testid="upload-btn"
             >
               <Upload size={18} />
               Upload Image
@@ -208,6 +259,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
             <button 
               onClick={() => setIsCameraOpen(true)}
               className="px-6 py-2.5 bg-white text-emerald-600 border border-emerald-200 rounded-full font-medium shadow-sm hover:bg-emerald-50 transition-colors flex items-center gap-2"
+              data-testid="camera-btn"
             >
               <Camera size={18} />
               Take Photo
@@ -221,6 +273,7 @@ export const UploadSection: React.FC<UploadSectionProps> = ({ onImageSelect }) =
           ref={fileInputRef} 
           onChange={handleChange}
           accept="image/*"
+          data-testid="file-input"
         />
       </div>
       

@@ -6,6 +6,8 @@ import { ResultsView } from './components/ResultsView';
 import { HistoryModal } from './components/HistoryModal';
 import { SettingsModal } from './components/SettingsModal';
 import { ChatDrawer } from './components/ChatDrawer';
+import { DiagnosticsModal } from './components/DiagnosticsModal';
+import { Toast } from './components/Toast';
 import { AnalysisState, FoodAnalysisResult, HistoryItem, UserSettings, ChatMessage } from './types';
 import { analyzeFoodImage, chatWithNutritionist, AgentActions } from './services/geminiService';
 import { History, Settings, MessageSquare, PlusCircle } from 'lucide-react';
@@ -22,23 +24,67 @@ const App: React.FC = () => {
 
   // App Features State
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [settings, setSettings] = useState<UserSettings>({ dietaryPreferences: [], activeAgents: [] });
+  const [settings, setSettings] = useState<UserSettings>({ 
+    dietaryPreferences: [], 
+    activeAgents: [],
+    customDietRules: '',
+    dailyCalorieTarget: undefined
+  });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [activeModal, setActiveModal] = useState<'none' | 'history' | 'settings'>('none');
+  const [activeModal, setActiveModal] = useState<'none' | 'history' | 'settings' | 'diagnostics'>('none');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isChatTyping, setIsChatTyping] = useState(false);
 
+  // Notification State
+  const [toast, setToast] = useState<{ visible: boolean; message: string }>({ visible: false, message: '' });
+
   // Load persistence on mount
   useEffect(() => {
-    const savedHistory = localStorage.getItem('nutrivision_history');
-    if (savedHistory) setHistory(JSON.parse(savedHistory));
+    try {
+      const savedHistory = localStorage.getItem('nutrivision_history');
+      if (savedHistory) setHistory(JSON.parse(savedHistory));
+    } catch (e) {
+      console.error("Failed to load history", e);
+    }
 
-    const savedSettings = localStorage.getItem('nutrivision_settings');
-    if (savedSettings) setSettings(JSON.parse(savedSettings));
+    try {
+      const savedSettings = localStorage.getItem('nutrivision_settings');
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        setSettings(prev => ({
+          ...prev,
+          ...parsed,
+          activeAgents: parsed.activeAgents || [],
+          dietaryPreferences: parsed.dietaryPreferences || []
+        }));
+      }
+    } catch (e) {
+      console.error("Failed to load settings", e);
+    }
 
-    const savedChat = localStorage.getItem('nutrivision_chat');
-    if (savedChat) setChatMessages(JSON.parse(savedChat));
+    try {
+      const savedChat = localStorage.getItem('nutrivision_chat');
+      if (savedChat) setChatMessages(JSON.parse(savedChat));
+    } catch (e) {
+      console.error("Failed to load chat", e);
+    }
   }, []);
+
+  // --- Helpers defined BEFORE usage to prevent Reference Errors ---
+
+  const calculateDailyTotal = (currentHistory: HistoryItem[]) => {
+    const today = new Date().toDateString();
+    return currentHistory
+      .filter(item => new Date(item.timestamp).toDateString() === today)
+      .reduce((sum, item) => sum + item.result.totalCalories, 0);
+  };
+
+  const handleSaveSettings = (newSettings: UserSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('nutrivision_settings', JSON.stringify(newSettings));
+  };
+
+  // --- Features Logic ---
 
   // Simulate progress when status changes to 'analyzing'
   useEffect(() => {
@@ -90,30 +136,73 @@ const App: React.FC = () => {
       localStorage.setItem('nutrivision_history', JSON.stringify(updatedHistory));
 
       setState(prev => ({ ...prev, progress: 100 }));
-      setTimeout(() => setState(prev => ({ ...prev, status: 'complete', result: data })), 600);
+      
+      // Calculate status for notification
+      const todayTotal = calculateDailyTotal(updatedHistory);
+      let toastMsg = "";
+      
+      if (settings.dailyCalorieTarget) {
+        const percent = Math.round((todayTotal / settings.dailyCalorieTarget) * 100);
+        const remaining = settings.dailyCalorieTarget - todayTotal;
+        const status = remaining >= 0 ? `${remaining} kcal left` : `${Math.abs(remaining)} kcal over`;
+        toastMsg = `Logged! ${percent}% of goal used (${status}).`;
+      } else {
+        toastMsg = `Logged! Total: ${todayTotal} kcal. Tip: Update your Daily Goal below to track limits.`;
+      }
+
+      setTimeout(() => {
+        setState(prev => ({ ...prev, status: 'complete', result: data }));
+        setToast({ visible: true, message: toastMsg });
+      }, 600);
 
     } catch (err: any) {
       setState(prev => ({ ...prev, status: 'error', error: err.message || "Failed to analyze image" }));
     }
   };
 
-  // --- Chat & Agent Handlers ---
-
+  // --- Agent Actions Definition ---
+  
   const agentActions: AgentActions = {
     updateSettings: async (args: any) => {
       const newSettings = { ...settings };
-      if (args.dailyCalorieTarget) newSettings.dailyCalorieTarget = args.dailyCalorieTarget;
-      if (args.customDietRules) newSettings.customDietRules = args.customDietRules;
-      
-      if (args.addPreferences) {
-        newSettings.dietaryPreferences = [...new Set([...newSettings.dietaryPreferences, ...args.addPreferences])];
+      let changes = [];
+      let standingInfo = "";
+
+      if (args.dailyCalorieTarget) {
+        newSettings.dailyCalorieTarget = args.dailyCalorieTarget;
+        changes.push(`Target: ${args.dailyCalorieTarget} kcal`);
+        
+        // Calculate standing for AI response context
+        const currentTotal = calculateDailyTotal(history);
+        const remaining = args.dailyCalorieTarget - currentTotal;
+        const percent = Math.round((currentTotal / args.dailyCalorieTarget) * 100);
+        
+        if (remaining >= 0) {
+            standingInfo = ` You've consumed ${percent}% of your daily budget (${remaining} kcal remaining).`;
+        } else {
+            standingInfo = ` You've exceeded your daily budget by ${Math.abs(remaining)} kcal.`;
+        }
       }
-      if (args.removePreferences) {
+      
+      if (args.customDietRules) {
+        newSettings.customDietRules = args.customDietRules;
+        changes.push(`Rules: "${args.customDietRules}"`);
+      }
+      
+      if (args.addPreferences && Array.isArray(args.addPreferences)) {
+        newSettings.dietaryPreferences = [...new Set([...newSettings.dietaryPreferences, ...args.addPreferences])];
+        changes.push(`Added: ${args.addPreferences.join(', ')}`);
+      }
+      
+      if (args.removePreferences && Array.isArray(args.removePreferences)) {
         newSettings.dietaryPreferences = newSettings.dietaryPreferences.filter(p => !args.removePreferences.includes(p));
+        changes.push(`Removed: ${args.removePreferences.join(', ')}`);
       }
 
       handleSaveSettings(newSettings);
-      return `Settings updated successfully. Target: ${newSettings.dailyCalorieTarget || 'None'}, Rules: ${newSettings.customDietRules || 'None'}`;
+      
+      if (changes.length === 0) return "No settings were changed.";
+      return `Settings updated: ${changes.join(', ')}.${standingInfo}`;
     },
 
     logFood: async (args: any) => {
@@ -134,7 +223,7 @@ const App: React.FC = () => {
         },
         micronutrients: [],
         healthScore: 50, // Default neutral score for manual
-        healthRatingExplanation: "Manually logged item.",
+        healthRatingExplanation: `Manually logged meal: ${args.foodName}. Health score is estimated neutral.`,
         healthierAlternatives: [],
         allergens: [],
         dietaryTags: ["Manual Entry"],
@@ -143,63 +232,249 @@ const App: React.FC = () => {
         isManual: true
       };
 
-      // Create a placeholder image for manual logs
-      const placeholderImage = "https://cdn-icons-png.flaticon.com/512/3565/3565418.png"; 
-
       const newItem: HistoryItem = {
         id: Date.now().toString(),
         timestamp: Date.now(),
-        image: placeholderImage,
+        image: "MANUAL_ENTRY_MARKER",
         result: manualResult
       };
 
-      const updatedHistory = [newItem, ...history];
-      setHistory(updatedHistory);
-      localStorage.setItem('nutrivision_history', JSON.stringify(updatedHistory));
+      setHistory(prevHistory => {
+        const updated = [newItem, ...prevHistory];
+        localStorage.setItem('nutrivision_history', JSON.stringify(updated));
+        
+        const todayTotal = calculateDailyTotal(updated);
+        let msg = `Logged ${args.foodName}. Today: ${todayTotal} kcal.`;
+        if (settings.dailyCalorieTarget) {
+           const remaining = settings.dailyCalorieTarget - todayTotal;
+           const status = remaining >= 0 ? `${remaining} left` : `${Math.abs(remaining)} over`;
+           msg = `Logged ${args.foodName}. ${status}.`;
+        }
+        setToast({ visible: true, message: msg });
+        
+        return updated;
+      });
       
-      return `Logged ${args.foodName} (${args.calories} kcal) to history.`;
+      return `Logged ${args.foodName} (${args.calories} kcal).`;
     },
 
     setReminder: async (args: any) => {
       const minutes = args.minutes;
       const task = args.task;
-      
-      // In a real app, this would use Service Workers or Push API
       setTimeout(() => {
         alert(`⏰ REMINDER: ${task}`);
       }, minutes * 60000);
-
       return `Timer set. I will alert you in ${minutes} minutes to "${task}".`;
     }
   };
 
   const handleChatSubmit = async (text: string) => {
     const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text, timestamp: Date.now() };
-    const updatedMessages = [...chatMessages, userMsg];
-    setChatMessages(updatedMessages);
+    setChatMessages(prev => [...prev, userMsg]);
     setIsChatTyping(true);
 
     try {
-      // Pass the agentActions callbacks to the service
-      const responseText = await chatWithNutritionist(text, history, settings, updatedMessages, agentActions);
-      
+      const responseText = await chatWithNutritionist(text, history, settings, chatMessages, agentActions);
       const botMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: responseText, timestamp: Date.now() };
-      const finalMessages = [...updatedMessages, botMsg];
-      setChatMessages(finalMessages);
-      localStorage.setItem('nutrivision_chat', JSON.stringify(finalMessages));
+      setChatMessages(prev => {
+        const updated = [...prev, botMsg];
+        localStorage.setItem('nutrivision_chat', JSON.stringify(updated));
+        return updated;
+      });
     } catch (e) {
       console.error(e);
       const errorMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: "Sorry, I encountered an error. Please try again.", timestamp: Date.now() };
-      setChatMessages([...updatedMessages, errorMsg]);
+      setChatMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsChatTyping(false);
     }
   };
 
+  const handleUpdateGoal = (newGoal: number) => {
+     const updated = { ...settings, dailyCalorieTarget: newGoal };
+     handleSaveSettings(updated);
+     
+     // Calculate standing for the toast
+     const currentTotal = calculateDailyTotal(history);
+     const remaining = newGoal - currentTotal;
+     const percent = Math.round((currentTotal / newGoal) * 100);
+     
+     let statusMsg = "";
+     if (remaining >= 0) {
+       statusMsg = `${remaining} kcal remaining`;
+     } else {
+       statusMsg = `${Math.abs(remaining)} kcal over budget`;
+     }
+
+     setToast({ visible: true, message: `Goal set to ${newGoal} kcal. ${statusMsg} (${percent}%).` });
+  };
+
+  // --- End-to-End Simulation ---
+  const handleSimulation = (scenario: 'success' | 'error' | 'agent' | 'goal_limit' = 'success') => {
+    
+    // Mock Result Base
+    const mockResult: FoodAnalysisResult = {
+      totalCalories: 650,
+      confidenceLevel: "High",
+      foodItems: [
+        { name: "Grilled Chicken", calories: 250, portionEstimate: "150g", ingredients: ["Chicken", "Oil"] },
+        { name: "Quinoa Salad", calories: 300, portionEstimate: "1 cup", ingredients: ["Quinoa", "Veg"] },
+        { name: "Avocado", calories: 100, portionEstimate: "1/2", ingredients: ["Avocado"] }
+      ],
+      macros: { protein: 45, carbs: 50, fats: 25, fiber: 8 },
+      micronutrients: ["Vitamin C", "Potassium"],
+      healthScore: 92,
+      healthRatingExplanation: "Excellent balance.",
+      healthierAlternatives: [],
+      allergens: [],
+      dietaryTags: ["High Protein"],
+      exerciseEquivalent: "60 mins walk",
+      cookingMethodSuggestions: "Grill is good.",
+      isManual: true
+    };
+
+    if (scenario === 'error') {
+      setState({
+        status: 'analyzing',
+        image: "MANUAL_ENTRY_MARKER", 
+        result: null,
+        error: null,
+        progress: 0
+      });
+      setTimeout(() => {
+        setState(prev => ({
+          ...prev,
+          status: 'error',
+          error: "Simulation: Connection Failed.",
+          progress: 0
+        }));
+      }, 2000);
+      return;
+    }
+
+    if (scenario === 'agent') {
+      setIsChatOpen(true);
+      const userMsg: ChatMessage = { id: Date.now().toString(), role: 'user', text: "Simulated: Log coffee (5 kcal)", timestamp: Date.now() };
+      setChatMessages(prev => [...prev, userMsg]);
+      setIsChatTyping(true);
+      
+      setTimeout(() => {
+        // Execute Agent Action
+        const newItem: HistoryItem = {
+          id: Date.now().toString(),
+          timestamp: Date.now(),
+          image: "MANUAL_ENTRY_MARKER",
+          result: {
+            ...mockResult,
+            totalCalories: 5,
+            foodItems: [{ name: "Black Coffee", calories: 5, portionEstimate: "1 cup", ingredients: ["Coffee"] }],
+            macros: { protein: 0, carbs: 1, fats: 0, fiber: 0 },
+            healthScore: 85,
+            dietaryTags: ["Low Cal"]
+          }
+        };
+        setHistory(prev => {
+           const updated = [newItem, ...prev];
+           const todayTotal = calculateDailyTotal(updated);
+           setToast({ visible: true, message: `Logged Coffee. Today: ${todayTotal} kcal.` });
+           return updated;
+        });
+        
+        const botMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: 'model', text: "Logged Coffee (5 kcal).", timestamp: Date.now() };
+        setChatMessages(prev => [...prev, botMsg]);
+        setIsChatTyping(false);
+      }, 2000);
+      return;
+    }
+
+    if (scenario === 'goal_limit') {
+      // 1. Set a 2000 kcal Goal
+      const target = 2000;
+      handleSaveSettings({ ...settings, dailyCalorieTarget: target });
+      
+      // 2. Clear history and add a heavy meal
+      const pastMeal: HistoryItem = {
+         id: (Date.now() - 1000).toString(),
+         timestamp: Date.now() - 1000,
+         image: "MANUAL_ENTRY_MARKER",
+         result: {
+            ...mockResult,
+            totalCalories: 1500,
+            foodItems: [{ name: "Heavy Lunch", calories: 1500, portionEstimate: "Large", ingredients: ["Burger", "Fries"] }],
+            macros: { protein: 40, carbs: 120, fats: 80, fiber: 5 },
+            healthScore: 40
+         }
+      };
+      
+      setHistory([pastMeal]);
+
+      // 3. Simulate analyzing a new meal that puts user over budget (600 kcal -> Total 2100)
+      setState({ status: 'analyzing', image: "MANUAL_ENTRY_MARKER", result: null, error: null, progress: 0 });
+      
+      setTimeout(() => {
+         const newResult = { 
+           ...mockResult, 
+           totalCalories: 600,
+           foodItems: [{ name: "Dinner", calories: 600, portionEstimate: "Plate", ingredients: ["Pasta"] }] 
+         };
+
+         setHistory(prev => {
+            const updated = [{ id: Date.now().toString(), timestamp: Date.now(), image: "MANUAL_ENTRY_MARKER", result: newResult }, ...prev];
+            const total = 2100;
+            const over = total - target;
+            setToast({ visible: true, message: `Logged! Over budget by ${over} kcal.` });
+            return updated;
+         });
+
+         setState(prev => ({
+           ...prev,
+           status: 'complete',
+           result: newResult,
+           progress: 100
+         }));
+      }, 1500);
+      return;
+    }
+
+    // Default: Success
+    setState({
+      status: 'analyzing',
+      image: "MANUAL_ENTRY_MARKER",
+      result: null,
+      error: null,
+      progress: 0
+    });
+
+    setTimeout(() => {
+      const newItem: HistoryItem = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        image: "MANUAL_ENTRY_MARKER",
+        result: mockResult
+      };
+
+      setHistory(prev => {
+        const updated = [newItem, ...prev];
+        localStorage.setItem('nutrivision_history', JSON.stringify(updated));
+        
+        const todayTotal = calculateDailyTotal(updated);
+        setToast({ visible: true, message: `Simulated Log. Total: ${todayTotal} kcal.` });
+
+        return updated;
+      });
+
+      setState(prev => ({
+        ...prev,
+        status: 'complete',
+        result: mockResult,
+        progress: 100
+      }));
+    }, 2500);
+  };
+
   const handleClearChat = () => {
     if (chatMessages.length === 0) return;
-    
-    if (window.confirm("Are you sure you want to clear the chat history and start a new conversation?")) {
+    if (window.confirm("Clear chat history?")) {
       setChatMessages([]);
       localStorage.removeItem('nutrivision_chat');
     }
@@ -207,11 +482,6 @@ const App: React.FC = () => {
 
   const handleReset = () => {
     setState({ status: 'idle', image: null, result: null, error: null, progress: 0 });
-  };
-
-  const handleSaveSettings = (newSettings: UserSettings) => {
-    setSettings(newSettings);
-    localStorage.setItem('nutrivision_settings', JSON.stringify(newSettings));
   };
 
   const handleClearHistory = () => {
@@ -232,7 +502,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-800">
-      {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer group" onClick={handleReset}>
@@ -260,9 +529,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8 relative">
-        
         {state.status === 'idle' && (
           <div className="animate-[fadeIn_0.5s_ease-out]">
             <div className="text-center max-w-2xl mx-auto mb-10">
@@ -276,7 +543,6 @@ const App: React.FC = () => {
             
             <UploadSection onImageSelect={handleImageSelect} />
 
-            {/* Diet Pattern Entry Card */}
             <div className="mt-12 max-w-2xl mx-auto">
               <div 
                 onClick={() => setActiveModal('settings')}
@@ -287,7 +553,7 @@ const App: React.FC = () => {
                      <PlusCircle className="text-emerald-200" /> Create Your Dietary Pattern
                    </h3>
                    <p className="text-emerald-100 text-sm opacity-90">
-                     Define custom rules, set calorie targets, and enable AI Agents for reminders.
+                     Define custom rules, set calorie targets, and enable AI Agents.
                    </p>
                 </div>
                 <div className="bg-white/20 p-3 rounded-full group-hover:bg-white/30 transition-colors">
@@ -296,14 +562,13 @@ const App: React.FC = () => {
               </div>
             </div>
             
-            {/* Features Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-10">
                {[
-                 { title: "Smart Memory", desc: "The AI remembers your daily intake and adjusts suggestions.", icon: "🧠" },
-                 { title: "Diet Agents", desc: "Ask the chat to set reminders, log manual meals, or update goals.", icon: "🤖" },
+                 { title: "Smart Memory", desc: "The AI remembers your daily intake.", icon: "🧠" },
+                 { title: "Diet Agents", desc: "Ask chat to set reminders or log meals.", icon: "🤖" },
                  { title: "Instant Analysis", desc: "Get calories and macros in seconds.", icon: "⚡" }
                ].map((f, i) => (
-                 <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:border-emerald-200 transition-colors">
+                 <div key={i} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
                     <div className="text-3xl mb-3">{f.icon}</div>
                     <h3 className="font-bold text-slate-800 mb-1">{f.title}</h3>
                     <p className="text-slate-500 text-sm">{f.desc}</p>
@@ -351,11 +616,23 @@ const App: React.FC = () => {
         )}
 
         {state.status === 'complete' && state.result && state.image && (
-          <ResultsView result={state.result} imageSrc={state.image} onReset={handleReset} />
+          <ResultsView 
+            result={state.result} 
+            imageSrc={state.image} 
+            onReset={handleReset} 
+            dailyGoal={settings.dailyCalorieTarget}
+            consumedToday={calculateDailyTotal(history)}
+            onUpdateGoal={handleUpdateGoal}
+          />
         )}
       </main>
 
-      {/* Floating Chat Button */}
+      <Toast 
+        message={toast.message} 
+        isVisible={toast.visible} 
+        onClose={() => setToast(prev => ({ ...prev, visible: false }))} 
+      />
+
       <button 
         onClick={() => setIsChatOpen(true)}
         className="fixed bottom-6 right-6 p-4 bg-slate-800 text-white rounded-full shadow-2xl hover:bg-slate-700 hover:scale-105 transition-all z-40 flex items-center gap-2"
@@ -364,7 +641,6 @@ const App: React.FC = () => {
         <span className="font-bold pr-1 hidden sm:inline">Ask AI Assistant</span>
       </button>
 
-      {/* Modals & Drawers */}
       <HistoryModal 
         isOpen={activeModal === 'history'}
         onClose={() => setActiveModal('none')}
@@ -378,6 +654,14 @@ const App: React.FC = () => {
         onClose={() => setActiveModal('none')}
         settings={settings}
         onSave={handleSaveSettings}
+        onOpenDiagnostics={() => setActiveModal('diagnostics')}
+      />
+
+      <DiagnosticsModal 
+        isOpen={activeModal === 'diagnostics'}
+        onClose={() => setActiveModal('none')}
+        onRunSimulation={handleSimulation}
+        historyCount={history.length}
       />
 
       <ChatDrawer 
