@@ -1,3 +1,4 @@
+
 // Data model returned by Gemini
 export interface FoodItem {
   name: string;
@@ -33,6 +34,7 @@ export interface FoodAnalysisResult {
   dietaryTags: string[]; // e.g. "High Protein", "Keto Friendly"
   exerciseEquivalent: string; // e.g., "45 mins walking"
   cookingMethodSuggestions: string;
+  isManual?: boolean; // Flag for manually logged meals via chat
 }
 
 export type AnalysisStatus = 'idle' | 'preview' | 'analyzing' | 'complete' | 'error';
@@ -52,6 +54,16 @@ export interface HistoryItem {
   result: FoodAnalysisResult;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model' | 'system';
+  text: string;
+  timestamp: number;
+}
+
 export interface UserSettings {
   dietaryPreferences: string[];
+  dailyCalorieTarget?: number;
+  customDietRules?: string; // e.g. "Intermittent fasting, window 12-8pm"
+  activeAgents?: string[]; // e.g. "hydration_reminder", "weekly_report"
 }

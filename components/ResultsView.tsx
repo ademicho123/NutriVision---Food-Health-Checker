@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { FoodAnalysisResult } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend } from 'recharts';
@@ -12,7 +13,8 @@ import {
   ChefHat,
   Share2,
   RefreshCw,
-  Check
+  Check,
+  Edit3
 } from 'lucide-react';
 
 interface ResultsViewProps {
@@ -114,8 +116,15 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
         {/* Left Col: Image & Key Stats */}
         <div className="md:col-span-5 space-y-6">
           {/* Image Card */}
-          <div className="bg-white p-2 rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="bg-white p-2 rounded-3xl shadow-sm border border-slate-100 overflow-hidden relative group">
             <img src={imageSrc} alt="Analyzed Food" className="w-full h-64 object-cover rounded-2xl" />
+            
+            {result.isManual && (
+              <div className="absolute top-4 right-4 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                MANUAL LOG
+              </div>
+            )}
+
             <div className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-2xl font-bold text-slate-800">{result.totalCalories}</h2>
@@ -257,15 +266,19 @@ export const ResultsView: React.FC<ResultsViewProps> = ({ result, imageSrc, onRe
               {expandedSection === 'alternatives' && (
                 <div className="px-6 pb-6 pt-2">
                   <div className="grid gap-4">
-                    {result.healthierAlternatives.map((alt, idx) => (
-                      <div key={idx} className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 className="font-bold text-purple-900">{alt.name}</h4>
-                          <span className="text-xs font-bold text-white bg-purple-400 px-2 py-1 rounded-full">Save {alt.calorieSavings} kcal</span>
+                    {result.healthierAlternatives.length > 0 ? (
+                       result.healthierAlternatives.map((alt, idx) => (
+                        <div key={idx} className="bg-purple-50 p-4 rounded-2xl border border-purple-100">
+                          <div className="flex justify-between items-start mb-2">
+                            <h4 className="font-bold text-purple-900">{alt.name}</h4>
+                            <span className="text-xs font-bold text-white bg-purple-400 px-2 py-1 rounded-full">Save {alt.calorieSavings} kcal</span>
+                          </div>
+                          <p className="text-sm text-purple-800 opacity-90">{alt.explanation}</p>
                         </div>
-                        <p className="text-sm text-purple-800 opacity-90">{alt.explanation}</p>
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-500 italic">No alternatives needed! This meal is already optimized for your diet.</p>
+                    )}
                   </div>
                   <div className="mt-4 p-4 bg-orange-50 rounded-2xl border border-orange-100">
                     <h5 className="font-semibold text-orange-800 mb-1 flex items-center gap-2">
